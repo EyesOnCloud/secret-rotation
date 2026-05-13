@@ -1,0 +1,67 @@
+services:
+
+  vault:
+    image: hashicorp/vault:1.15.4
+    container_name: vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+    command: vault server -dev
+    networks:
+      - lab-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8200/v1/sys/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: InitialPassword_v1
+    ports:
+      - "5432:5432"
+    networks:
+      - lab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: rotation-app
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: appdb
+      DB_USER: appuser
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: "root"
+      VAULT_SECRET_PATH: "secret/db"
+      POOL_SIZE: "5"
+      SECRET_REFRESH_INTERVAL: "30"
+    ports:
+      - "8080:8080"
+    depends_on:
+      vault:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - lab-network
+    restart: on-failure
+
+networks:
+  lab-network:
+    driver: bridge
